@@ -2,6 +2,7 @@ pub mod cli;
 pub mod client;
 pub mod error;
 pub mod input;
+pub mod mcp;
 pub mod protocol;
 mod typesafe;
 pub mod validation;
@@ -36,5 +37,6 @@ async fn run_inner() -> Result<(), AppError> {
             validation::validate_request(&request)
         }
         Command::Doctor(args) => cli::run_doctor(args),
+        Command::Mcp(args) => mcp::run(args).await,
     }
 }

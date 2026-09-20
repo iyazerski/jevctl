@@ -4,6 +4,7 @@ use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
 use crate::error::AppError;
+use crate::mcp::McpArgs;
 use crate::protocol::OutputDetail;
 
 const EVALUATE_AFTER_HELP: &str = "Examples:\n  jevctl evaluate request.json\n  cat request.json | jevctl evaluate\n  jevctl evaluate request.json --full --pretty";
@@ -33,6 +34,8 @@ pub enum Command {
     /// Check local readiness without making an API request.
     #[command(after_help = DOCTOR_AFTER_HELP)]
     Doctor(DoctorArgs),
+    /// Run jevctl as an MCP server.
+    Mcp(McpArgs),
 }
 
 #[derive(Debug, Args)]
@@ -138,5 +141,10 @@ mod tests {
             panic!("expected doctor command");
         };
         assert!(args.json);
+    }
+
+    #[test]
+    fn mcp_serve_parses() {
+        Cli::try_parse_from(["jevctl", "mcp", "serve"]).unwrap();
     }
 }

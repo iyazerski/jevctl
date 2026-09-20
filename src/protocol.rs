@@ -57,6 +57,32 @@ pub enum EvaluationOutput {
     Full(FullResponse),
 }
 
+impl EvaluationOutput {
+    /// Project any response to the smallest equivalent scalar answer map.
+    pub fn compact(&self) -> CompactResponse {
+        match self {
+            Self::Compact(response) => response.clone(),
+            Self::Full(response) => CompactResponse {
+                answers: response
+                    .answers
+                    .iter()
+                    .map(|(id, answer)| {
+                        let answer = match answer {
+                            FullAnswer::Boolean { value } | FullAnswer::Scale { value, .. } => {
+                                CompactAnswer::Number(*value)
+                            }
+                            FullAnswer::Select { value, .. } => {
+                                CompactAnswer::Selection(value.clone())
+                            }
+                        };
+                        (id.clone(), answer)
+                    })
+                    .collect(),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct CompactResponse {
     pub answers: BTreeMap<String, CompactAnswer>,
@@ -90,4 +116,42 @@ pub enum FullAnswer {
         confidence: f64,
         probabilities: Vec<f64>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{EvaluationOutput, FullAnswer, FullResponse};
+
+    #[test]
+    fn full_output_projects_to_compact_values() {
+        let output = EvaluationOutput::Full(FullResponse {
+            answers: BTreeMap::from([
+                (
+                    "route".to_owned(),
+                    FullAnswer::Select {
+                        value: "exact".to_owned(),
+                        confidence: 0.9,
+                        probabilities: BTreeMap::from([
+                            ("exact".to_owned(), 0.95),
+                            ("other".to_owned(), 0.05),
+                        ]),
+                    },
+                ),
+                (
+                    "risk".to_owned(),
+                    FullAnswer::Scale {
+                        value: 1.5,
+                        confidence: 0.8,
+                        probabilities: vec![0.0, 0.5, 0.5],
+                    },
+                ),
+            ]),
+        });
+        assert_eq!(
+            serde_json::to_value(output.compact()).unwrap(),
+            serde_json::json!({"answers": {"risk": 1.5, "route": "exact"}})
+        );
+    }
 }

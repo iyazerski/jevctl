@@ -26,6 +26,8 @@ pub enum AppError {
     RequestRejected(String),
     #[error("invalid evaluation response: {0}")]
     InvalidResponse(String),
+    #[error("MCP server failed: {0}")]
+    Mcp(String),
 }
 
 impl AppError {
@@ -34,7 +36,7 @@ impl AppError {
         match self {
             Self::InvalidInput(_) | Self::InputIo { .. } | Self::Json(_) => 2,
             Self::MissingApiKey | Self::Authentication => 3,
-            Self::ServiceUnavailable | Self::RequestRejected(_) => 4,
+            Self::ServiceUnavailable | Self::RequestRejected(_) | Self::Mcp(_) => 4,
             Self::InvalidResponse(_) => 5,
             Self::RetriesExhausted { .. } => 6,
         }
