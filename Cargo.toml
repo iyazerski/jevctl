@@ -1,0 +1,25 @@
+[package]
+name = "jevctl"
+version = "0.1.0"
+edition = "2024"
+description = "Fast semantic evaluation for agent workflows"
+license = "MIT"
+readme = "README.md"
+keywords = ["ai", "agents", "cli", "mcp", "semantic-evaluation"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+schemars = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
