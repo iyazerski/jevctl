@@ -4,6 +4,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputDetail {
+    Compact,
+    Full,
+}
+
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvaluationRequest {
@@ -42,4 +48,46 @@ impl Question {
             | Self::Scale { prompt, .. } => prompt,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum EvaluationOutput {
+    Compact(CompactResponse),
+    Full(FullResponse),
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CompactResponse {
+    pub answers: BTreeMap<String, CompactAnswer>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum CompactAnswer {
+    Number(f64),
+    Selection(String),
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct FullResponse {
+    pub answers: BTreeMap<String, FullAnswer>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum FullAnswer {
+    Boolean {
+        value: f64,
+    },
+    Select {
+        value: String,
+        confidence: f64,
+        probabilities: BTreeMap<String, f64>,
+    },
+    Scale {
+        value: f64,
+        confidence: f64,
+        probabilities: Vec<f64>,
+    },
 }

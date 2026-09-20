@@ -1,0 +1,31 @@
+{
+  "context": {
+    "message": "The payment service has failed for three days. Please fix it today."
+  },
+  "questions": {
+    "urgent": {
+      "kind": "boolean",
+      "prompt": "Does `message` communicate urgency?",
+      "yes_when": "It asks for prompt action or describes a time-sensitive problem.",
+      "no_when": "It has no timing pressure."
+    },
+    "route": {
+      "kind": "select",
+      "prompt": "Which team should handle `message`?",
+      "options": {
+        "billing": "Payments, payouts, invoices, or refunds.",
+        "technical": "General bugs, outages, or integrations.",
+        "sales": "Purchases or product evaluation."
+      }
+    },
+    "severity": {
+      "kind": "scale",
+      "prompt": "How severe is the operational impact in `message`?",
+      "levels": [
+        "No material impact.",
+        "Some inconvenience with a workaround.",
+        "A core service is failing without a stated workaround."
+      ]
+    }
+  }
+}
