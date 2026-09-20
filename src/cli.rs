@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::error::AppError;
 use crate::mcp::McpArgs;
-use crate::protocol::OutputDetail;
+use crate::protocol::{EvaluationRequest, OutputDetail};
 
 const EVALUATE_AFTER_HELP: &str = "Examples:\n  jevctl evaluate request.json\n  cat request.json | jevctl evaluate\n  jevctl evaluate request.json --full --pretty";
 const VALIDATE_AFTER_HELP: &str =
@@ -53,11 +53,11 @@ pub struct EvaluateArgs {
 
 impl EvaluateArgs {
     /// Select the normalized output detail requested by the caller.
-    pub fn detail(&self) -> OutputDetail {
+    pub fn detail(&self, request: &EvaluationRequest) -> OutputDetail {
         if self.full {
             OutputDetail::Full
         } else {
-            OutputDetail::Compact
+            request.detail.unwrap_or(OutputDetail::Compact)
         }
     }
 }
@@ -129,8 +129,16 @@ mod tests {
         let Command::Evaluate(args) = cli.command else {
             panic!("expected evaluate command");
         };
+        let request = crate::protocol::EvaluationRequest {
+            context: serde_json::json!(null),
+            questions: std::collections::BTreeMap::new(),
+            detail: None,
+        };
         assert_eq!(args.input.to_string_lossy(), "-");
-        assert_eq!(args.detail(), crate::protocol::OutputDetail::Compact);
+        assert_eq!(
+            args.detail(&request),
+            crate::protocol::OutputDetail::Compact
+        );
         assert!(!args.pretty);
     }
 

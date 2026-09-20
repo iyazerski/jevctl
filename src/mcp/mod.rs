@@ -1,24 +1,18 @@
-use std::collections::BTreeMap;
+mod transport;
 
 use clap::{Args, Subcommand};
 use rmcp::{
-    ErrorData, RoleServer, ServerHandler, ServiceExt,
+    ErrorData, ServerHandler, ServiceExt,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{
-        CallToolResult, ClientJsonRpcMessage, ClientNotification, ClientRequest, ContentBlock,
-        ErrorCode, ServerCapabilities, ServerInfo, ServerJsonRpcMessage,
-    },
-    service::{RxJsonRpcMessage, TxJsonRpcMessage},
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router,
-    transport::{Transport, async_rw::AsyncRwTransport, stdio},
+    transport::{async_rw::AsyncRwTransport, stdio},
 };
-use schemars::JsonSchema;
-use serde::Deserialize;
-use serde_json::Value;
 
 use crate::client::EvaluationClient;
 use crate::error::AppError;
-use crate::protocol::{EvaluationRequest, OutputDetail, Question};
+use crate::mcp::transport::PreInitTransport;
+use crate::protocol::EvaluationRequest;
 use crate::validation::validate_request;
 
 const SERVER_INSTRUCTIONS: &str = "Use evaluate for fast semantic judgments that exact code cannot reliably make: intent, relevance, support, similarity, preference, or severity. Put concise shared evidence in context and batch independent questions. Use boolean for a yes-probability, select for one bounded option, and scale for an ordered degree. Compact output is the default; request full only when distributions matter. Do not use this for arithmetic, parsing, lookup, deterministic checks, execution, authorization, or prose generation. Results are advisory evidence and never replace tests or policy.";
@@ -33,35 +27,6 @@ pub struct McpArgs {
 pub enum McpCommand {
     /// Serve MCP over stdin and stdout.
     Serve,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-enum Detail {
-    #[default]
-    Compact,
-    Full,
-}
-
-impl From<Detail> for OutputDetail {
-    fn from(value: Detail) -> Self {
-        match value {
-            Detail::Compact => Self::Compact,
-            Detail::Full => Self::Full,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct EvaluateRequest {
-    /// Concise evidence shared by all questions. Strings, objects, arrays, and scalar JSON are accepted.
-    context: Value,
-    /// Independent judgments to run together. Use boolean for yes-probability, select for one bounded option, or scale for ordered degree.
-    questions: BTreeMap<String, Question>,
-    /// Compact returns scalar answers; full adds normalized probability distributions.
-    #[serde(default)]
-    detail: Detail,
 }
 
 #[derive(Clone)]
@@ -98,18 +63,16 @@ impl JevctlMcp {
     )]
     async fn evaluate(
         &self,
-        Parameters(input): Parameters<EvaluateRequest>,
+        Parameters(request): Parameters<EvaluationRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let request = EvaluationRequest {
-            context: input.context,
-            questions: input.questions,
-        };
         validate_request(&request)
             .map_err(|error| ErrorData::invalid_params(error.to_string(), None))?;
 
-        match self.client.evaluate(&request, input.detail.into()).await {
+        let detail = request.detail.unwrap_or_default();
+        match self.client.evaluate(&request, detail).await {
             Ok(output) => {
-                let text = serde_json::to_string(&output.compact())
+                let text = output
+                    .to_compact_json_string()
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
                 let structured = serde_json::to_value(&output)
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
@@ -144,73 +107,4 @@ async fn serve() -> Result<(), AppError> {
         .await
         .map_err(|error| AppError::Mcp(error.to_string()))?;
     Ok(())
-}
-
-struct PreInitTransport<T> {
-    inner: T,
-    initialized: bool,
-}
-
-impl<T> PreInitTransport<T> {
-    fn new(inner: T) -> Self {
-        Self {
-            inner,
-            initialized: false,
-        }
-    }
-}
-
-impl<T> Transport<RoleServer> for PreInitTransport<T>
-where
-    T: Transport<RoleServer>,
-{
-    type Error = T::Error;
-
-    fn send(
-        &mut self,
-        item: TxJsonRpcMessage<RoleServer>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'static {
-        self.inner.send(item)
-    }
-
-    async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleServer>> {
-        loop {
-            let message = self.inner.receive().await?;
-            if self.initialized {
-                return Some(message);
-            }
-            match message {
-                ClientJsonRpcMessage::Request(request)
-                    if matches!(&request.request, ClientRequest::InitializeRequest(_)) =>
-                {
-                    self.initialized = true;
-                    return Some(ClientJsonRpcMessage::Request(request));
-                }
-                ClientJsonRpcMessage::Request(request)
-                    if matches!(&request.request, ClientRequest::CustomRequest(_)) =>
-                {
-                    let error =
-                        ErrorData::new(ErrorCode::METHOD_NOT_FOUND, "Method not found", None);
-                    if self
-                        .inner
-                        .send(ServerJsonRpcMessage::error(error, Some(request.id)))
-                        .await
-                        .is_err()
-                    {
-                        return None;
-                    }
-                }
-                ClientJsonRpcMessage::Notification(notification)
-                    if matches!(
-                        notification.notification,
-                        ClientNotification::CustomNotification(_)
-                    ) => {}
-                other => return Some(other),
-            }
-        }
-    }
-
-    fn close(&mut self) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        self.inner.close()
-    }
 }

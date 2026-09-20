@@ -1,7 +1,9 @@
+use std::borrow::Cow;
 use std::time::Duration;
 
-use reqwest::header::RETRY_AFTER;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, RETRY_AFTER};
 use reqwest::{StatusCode, Url};
+use serde::Deserialize;
 
 use crate::error::AppError;
 use crate::protocol::{EvaluationOutput, EvaluationRequest, OutputDetail};
@@ -14,7 +16,6 @@ const MAX_ATTEMPTS: usize = 3;
 pub struct EvaluationClient {
     http: reqwest::Client,
     endpoint: Url,
-    api_key: String,
     max_attempts: usize,
 }
 
@@ -32,14 +33,20 @@ impl EvaluationClient {
     }
 
     fn new(endpoint: Url, api_key: String) -> Result<Self, AppError> {
+        let mut headers = HeaderMap::new();
+        let mut auth_val = HeaderValue::from_str(&format!("Bearer {api_key}"))
+            .map_err(|_| AppError::Authentication)?;
+        auth_val.set_sensitive(true);
+        headers.insert(AUTHORIZATION, auth_val);
+
         let http = reqwest::Client::builder()
+            .default_headers(headers)
             .timeout(Duration::from_secs(30))
             .build()
             .map_err(|_| AppError::ServiceUnavailable)?;
         Ok(Self {
             http,
             endpoint,
-            api_key,
             max_attempts: MAX_ATTEMPTS,
         })
     }
@@ -54,8 +61,7 @@ impl EvaluationClient {
         for attempt in 1..=self.max_attempts {
             let response = self
                 .http
-                .post(self.endpoint.clone())
-                .bearer_auth(&self.api_key)
+                .post(self.endpoint.as_str())
                 .json(&api_request)
                 .send()
                 .await
@@ -113,15 +119,25 @@ fn retry_delay(response: &reqwest::Response, attempt: usize) -> Duration {
     Duration::from_millis(base_ms + fastrand::u64(0..=50))
 }
 
+#[derive(Deserialize)]
+struct ErrorPayload<'a> {
+    #[serde(borrow)]
+    detail: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    message: Option<Cow<'a, str>>,
+}
+
 async fn safe_error_message(response: reqwest::Response) -> String {
-    let Ok(value) = response.json::<serde_json::Value>().await else {
+    let Ok(bytes) = response.bytes().await else {
         return "invalid request".to_owned();
     };
-    value
-        .get("detail")
-        .and_then(serde_json::Value::as_str)
-        .or_else(|| value.get("message").and_then(serde_json::Value::as_str))
-        .unwrap_or("invalid request")
+    let Ok(payload) = serde_json::from_slice::<ErrorPayload>(&bytes) else {
+        return "invalid request".to_owned();
+    };
+    payload
+        .detail
+        .or(payload.message)
+        .unwrap_or(Cow::Borrowed("invalid request"))
         .chars()
         .take(300)
         .collect()
@@ -158,6 +174,7 @@ mod tests {
                     no_when: None,
                 },
             )]),
+            detail: None,
         }
     }
 

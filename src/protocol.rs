@@ -4,8 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, JsonSchema, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OutputDetail {
+    #[default]
     Compact,
     Full,
 }
@@ -17,6 +19,9 @@ pub struct EvaluationRequest {
     pub context: Value,
     /// Independent semantic judgments to evaluate together.
     pub questions: BTreeMap<String, Question>,
+    /// Compact returns scalar answers; full adds normalized probability distributions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<OutputDetail>,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, Serialize)]
@@ -58,6 +63,33 @@ pub enum EvaluationOutput {
 }
 
 impl EvaluationOutput {
+    /// Format the compact answer projection as a JSON string with minimal allocations.
+    pub fn to_compact_json_string(&self) -> Result<String, serde_json::Error> {
+        match self {
+            Self::Compact(response) => serde_json::to_string(response),
+            Self::Full(response) => {
+                let compact = CompactResponseRef {
+                    answers: response
+                        .answers
+                        .iter()
+                        .map(|(id, answer)| {
+                            let answer = match answer {
+                                FullAnswer::Boolean { value } | FullAnswer::Scale { value, .. } => {
+                                    CompactAnswerRef::Number(*value)
+                                }
+                                FullAnswer::Select { value, .. } => {
+                                    CompactAnswerRef::Selection(value.as_str())
+                                }
+                            };
+                            (id.as_str(), answer)
+                        })
+                        .collect(),
+                };
+                serde_json::to_string(&compact)
+            }
+        }
+    }
+
     /// Project any response to the smallest equivalent scalar answer map.
     pub fn compact(&self) -> CompactResponse {
         match self {
@@ -81,6 +113,18 @@ impl EvaluationOutput {
             },
         }
     }
+}
+
+#[derive(Serialize)]
+struct CompactResponseRef<'a> {
+    answers: BTreeMap<&'a str, CompactAnswerRef<'a>>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum CompactAnswerRef<'a> {
+    Number(f64),
+    Selection(&'a str),
 }
 
 #[derive(Clone, Debug, Serialize)]

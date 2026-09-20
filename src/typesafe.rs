@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,12 +45,12 @@ struct NoulCriteria<'a> {
     no: Option<&'a str>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct ApiResponse {
     answers: BTreeMap<String, ApiAnswer>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ApiAnswer {
     Noul {
@@ -128,27 +128,27 @@ impl ApiResponse {
         request: &EvaluationRequest,
         detail: OutputDetail,
     ) -> Result<EvaluationOutput, AppError> {
-        let requested = request.questions.keys().cloned().collect::<BTreeSet<_>>();
-        let received = self.answers.keys().cloned().collect::<BTreeSet<_>>();
-        if requested != received {
+        let mut answers = self.answers;
+        if request.questions.len() != answers.len() || !request.questions.keys().eq(answers.keys())
+        {
             return invalid("answer IDs do not match requested question IDs");
         }
 
         let mut compact = BTreeMap::new();
         let mut full = BTreeMap::new();
         for (id, question) in &request.questions {
-            let answer = self.answers.get(id).ok_or_else(|| {
+            let (id, answer) = answers.remove_entry(id).ok_or_else(|| {
                 AppError::InvalidResponse(format!("missing answer for question {id:?}"))
             })?;
             match (question, answer) {
                 (Question::Boolean { .. }, ApiAnswer::Noul { noul }) => {
-                    validate_probability(*noul, id)?;
+                    validate_probability(noul, &id)?;
                     match detail {
                         OutputDetail::Compact => {
-                            compact.insert(id.clone(), CompactAnswer::Number(*noul));
+                            compact.insert(id, CompactAnswer::Number(noul));
                         }
                         OutputDetail::Full => {
-                            full.insert(id.clone(), FullAnswer::Boolean { value: *noul });
+                            full.insert(id, FullAnswer::Boolean { value: noul });
                         }
                     }
                 }
@@ -160,24 +160,24 @@ impl ApiResponse {
                         confidence,
                     },
                 ) => {
-                    validate_probability(*confidence, id)?;
-                    validate_distribution(probabilities, options.keys(), id)?;
-                    if !options.contains_key(choice) {
+                    validate_probability(confidence, &id)?;
+                    validate_distribution(&probabilities, options, &id)?;
+                    if !options.contains_key(&choice) {
                         return invalid(format!(
                             "question {id:?} selected unknown option {choice:?}"
                         ));
                     }
                     match detail {
                         OutputDetail::Compact => {
-                            compact.insert(id.clone(), CompactAnswer::Selection(choice.clone()));
+                            compact.insert(id, CompactAnswer::Selection(choice));
                         }
                         OutputDetail::Full => {
                             full.insert(
-                                id.clone(),
+                                id,
                                 FullAnswer::Select {
-                                    value: choice.clone(),
-                                    confidence: *confidence,
-                                    probabilities: probabilities.clone(),
+                                    value: choice,
+                                    confidence,
+                                    probabilities,
                                 },
                             );
                         }
@@ -192,22 +192,23 @@ impl ApiResponse {
                         confidence,
                     },
                 ) => {
-                    validate_probability(*confidence, id)?;
-                    validate_score(*score, levels.len(), id)?;
-                    validate_score_distribution(probabilities, legend, levels, id)?;
+                    validate_probability(confidence, &id)?;
+                    validate_score(score, levels.len(), &id)?;
+                    validate_score_distribution(&probabilities, &legend, levels, &id)?;
                     match detail {
                         OutputDetail::Compact => {
-                            compact.insert(id.clone(), CompactAnswer::Number(*score));
+                            compact.insert(id, CompactAnswer::Number(score));
                         }
                         OutputDetail::Full => {
+                            let probs = (0..levels.len())
+                                .map(|index| probabilities[&index.to_string()])
+                                .collect();
                             full.insert(
-                                id.clone(),
+                                id,
                                 FullAnswer::Scale {
-                                    value: *score,
-                                    confidence: *confidence,
-                                    probabilities: (0..levels.len())
-                                        .map(|index| probabilities[&index.to_string()])
-                                        .collect(),
+                                    value: score,
+                                    confidence,
+                                    probabilities: probs,
                                 },
                             );
                         }
@@ -233,14 +234,12 @@ fn validate_probability(value: f64, id: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validate_distribution<'a>(
+fn validate_distribution(
     probabilities: &BTreeMap<String, f64>,
-    expected: impl Iterator<Item = &'a String>,
+    options: &BTreeMap<String, String>,
     id: &str,
 ) -> Result<(), AppError> {
-    let expected = expected.cloned().collect::<BTreeSet<_>>();
-    let received = probabilities.keys().cloned().collect::<BTreeSet<_>>();
-    if expected != received {
+    if probabilities.len() != options.len() || !probabilities.keys().eq(options.keys()) {
         return invalid(format!(
             "question {id:?} returned probabilities for unexpected options"
         ));
@@ -254,20 +253,21 @@ fn validate_score_distribution(
     levels: &[String],
     id: &str,
 ) -> Result<(), AppError> {
-    let expected = (0..levels.len())
-        .map(|index| index.to_string())
-        .collect::<BTreeSet<_>>();
-    if probabilities.keys().cloned().collect::<BTreeSet<_>>() != expected
-        || legend.keys().cloned().collect::<BTreeSet<_>>() != expected
-    {
+    if probabilities.len() != levels.len() || legend.len() != levels.len() {
         return invalid(format!(
             "question {id:?} returned an invalid scale distribution"
         ));
     }
     for (index, level) in levels.iter().enumerate() {
-        if legend.get(&index.to_string()) != Some(level) {
+        let key = index.to_string();
+        if legend.get(&key) != Some(level) {
             return invalid(format!(
                 "question {id:?} returned a mismatched scale legend"
+            ));
+        }
+        if !probabilities.contains_key(&key) {
+            return invalid(format!(
+                "question {id:?} returned an invalid scale distribution"
             ));
         }
     }
@@ -275,11 +275,11 @@ fn validate_score_distribution(
 }
 
 fn validate_probability_sum(values: impl Iterator<Item = f64>, id: &str) -> Result<(), AppError> {
-    let values = values.collect::<Vec<_>>();
-    for value in &values {
-        validate_probability(*value, id)?;
+    let mut sum = 0.0;
+    for value in values {
+        validate_probability(value, id)?;
+        sum += value;
     }
-    let sum = values.into_iter().sum::<f64>();
     if (sum - 1.0).abs() > 0.01 {
         return invalid(format!("question {id:?} probabilities do not sum to one"));
     }
@@ -337,11 +337,12 @@ mod tests {
                     },
                 ),
             ]),
+            detail: None,
         }
     }
 
-    fn response() -> ApiResponse {
-        serde_json::from_value(json!({
+    fn response_json() -> serde_json::Value {
+        json!({
             "model": "hidden",
             "answers": {
                 "keep": {"type": "noul", "noul": 0.9},
@@ -356,8 +357,11 @@ mod tests {
                 }
             },
             "usage": {"input_tokens": 1, "output_tokens": 1}
-        }))
-        .unwrap()
+        })
+    }
+
+    fn response() -> ApiResponse {
+        serde_json::from_value(response_json()).unwrap()
     }
 
     #[test]
@@ -411,7 +415,7 @@ mod tests {
 
     #[test]
     fn rejects_distribution_with_missing_option() {
-        let mut value = serde_json::to_value(response()).unwrap();
+        let mut value = response_json();
         value["answers"]["route"]["probabilities"] = json!({"exact": 1.0});
         let response: ApiResponse = serde_json::from_value(value).unwrap();
         let error = response

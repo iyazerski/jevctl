@@ -75,6 +75,7 @@ mod tests {
         EvaluationRequest {
             context: json!({"text": "example"}),
             questions: BTreeMap::from([("q".to_owned(), question)]),
+            detail: None,
         }
     }
 
@@ -108,6 +109,7 @@ mod tests {
         let request = EvaluationRequest {
             context: json!(null),
             questions: BTreeMap::new(),
+            detail: None,
         };
         assert_eq!(
             validate_request(&request).unwrap_err().to_string(),

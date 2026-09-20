@@ -13,8 +13,8 @@ use crate::cli::{Cli, Command};
 use crate::error::AppError;
 
 /// Parse arguments, run the requested command, and return its process exit code.
-pub async fn run() -> i32 {
-    match run_inner().await {
+pub fn run() -> i32 {
+    match run_inner() {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("jevctl: {error}");
@@ -23,20 +23,33 @@ pub async fn run() -> i32 {
     }
 }
 
-async fn run_inner() -> Result<(), AppError> {
+fn run_inner() -> Result<(), AppError> {
     match Cli::parse().command {
         Command::Evaluate(args) => {
             let request = input::read_request(&args.input)?;
             validation::validate_request(&request)?;
-            let client = client::EvaluationClient::from_env()?;
-            let output = client.evaluate(&request, args.detail()).await?;
-            cli::print_json(&output, args.pretty)
+            let detail = args.detail(&request);
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| AppError::ServiceUnavailable)?;
+            runtime.block_on(async {
+                let client = client::EvaluationClient::from_env()?;
+                let output = client.evaluate(&request, detail).await?;
+                cli::print_json(&output, args.pretty)
+            })
         }
         Command::Validate(args) => {
             let request = input::read_request(&args.input)?;
             validation::validate_request(&request)
         }
         Command::Doctor(args) => cli::run_doctor(args),
-        Command::Mcp(args) => mcp::run(args).await,
+        Command::Mcp(args) => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| AppError::ServiceUnavailable)?;
+            runtime.block_on(mcp::run(args))
+        }
     }
 }
