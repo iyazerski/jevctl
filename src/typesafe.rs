@@ -143,8 +143,14 @@ impl ApiResponse {
             match (question, answer) {
                 (Question::Boolean { .. }, ApiAnswer::Noul { noul }) => {
                     validate_probability(*noul, id)?;
-                    compact.insert(id.clone(), CompactAnswer::Number(*noul));
-                    full.insert(id.clone(), FullAnswer::Boolean { value: *noul });
+                    match detail {
+                        OutputDetail::Compact => {
+                            compact.insert(id.clone(), CompactAnswer::Number(*noul));
+                        }
+                        OutputDetail::Full => {
+                            full.insert(id.clone(), FullAnswer::Boolean { value: *noul });
+                        }
+                    }
                 }
                 (
                     Question::Select { options, .. },
@@ -161,15 +167,21 @@ impl ApiResponse {
                             "question {id:?} selected unknown option {choice:?}"
                         ));
                     }
-                    compact.insert(id.clone(), CompactAnswer::Selection(choice.clone()));
-                    full.insert(
-                        id.clone(),
-                        FullAnswer::Select {
-                            value: choice.clone(),
-                            confidence: *confidence,
-                            probabilities: probabilities.clone(),
-                        },
-                    );
+                    match detail {
+                        OutputDetail::Compact => {
+                            compact.insert(id.clone(), CompactAnswer::Selection(choice.clone()));
+                        }
+                        OutputDetail::Full => {
+                            full.insert(
+                                id.clone(),
+                                FullAnswer::Select {
+                                    value: choice.clone(),
+                                    confidence: *confidence,
+                                    probabilities: probabilities.clone(),
+                                },
+                            );
+                        }
+                    }
                 }
                 (
                     Question::Scale { levels, .. },
@@ -183,17 +195,23 @@ impl ApiResponse {
                     validate_probability(*confidence, id)?;
                     validate_score(*score, levels.len(), id)?;
                     validate_score_distribution(probabilities, legend, levels, id)?;
-                    compact.insert(id.clone(), CompactAnswer::Number(*score));
-                    full.insert(
-                        id.clone(),
-                        FullAnswer::Scale {
-                            value: *score,
-                            confidence: *confidence,
-                            probabilities: (0..levels.len())
-                                .map(|index| probabilities[&index.to_string()])
-                                .collect(),
-                        },
-                    );
+                    match detail {
+                        OutputDetail::Compact => {
+                            compact.insert(id.clone(), CompactAnswer::Number(*score));
+                        }
+                        OutputDetail::Full => {
+                            full.insert(
+                                id.clone(),
+                                FullAnswer::Scale {
+                                    value: *score,
+                                    confidence: *confidence,
+                                    probabilities: (0..levels.len())
+                                        .map(|index| probabilities[&index.to_string()])
+                                        .collect(),
+                                },
+                            );
+                        }
+                    }
                 }
                 _ => return invalid(format!("question {id:?} received the wrong answer kind")),
             }

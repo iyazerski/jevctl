@@ -133,6 +133,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+    use std::time::Instant;
 
     use reqwest::Url;
     use serde_json::json;
@@ -246,5 +247,36 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.to_string(), "authentication rejected");
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "local performance measurement"]
+    async fn measures_local_client_round_trip() {
+        let responses = (0..200)
+            .map(|_| {
+                (
+                    "200 OK",
+                    vec![("content-type", "application/json")],
+                    ok_body(),
+                )
+            })
+            .collect();
+        let (url, server) = serve(responses);
+        let client = EvaluationClient::for_test(url, "secret", 1);
+        let mut timings = Vec::new();
+        for _ in 0..200 {
+            let started = Instant::now();
+            client
+                .evaluate(&request(), OutputDetail::Compact)
+                .await
+                .unwrap();
+            timings.push(started.elapsed());
+        }
+        timings.sort_unstable();
+        let median = timings[timings.len() / 2];
+        let p95 = timings[timings.len() * 95 / 100];
+        eprintln!("local client median={median:?} p95={p95:?}");
+        assert!(median.as_millis() < 10, "median was {median:?}");
+        assert_eq!(server.join().unwrap().len(), 200);
     }
 }
