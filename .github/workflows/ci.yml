@@ -28,7 +28,11 @@ jobs:
           cargo build --release --locked
           test_dir="$(mktemp -d)"
           asset="jevctl-x86_64-unknown-linux-musl.tar.gz"
-          tar -C target/release -czf "$test_dir/$asset" jevctl
+          mkdir "$test_dir/package"
+          cp target/release/jevctl README.md LICENSE "$test_dir/package/"
+          tar -C "$test_dir/package" -czf "$test_dir/$asset" jevctl README.md LICENSE
+          tar -tzf "$test_dir/$asset" | sort > "$test_dir/contents"
+          printf '%s\n' LICENSE README.md jevctl | diff -u - "$test_dir/contents"
           (cd "$test_dir" && sha256sum "$asset" > "$asset.sha256")
           JEVCTL_RELEASE_BASE_URL="file://$test_dir" \
             JEVCTL_INSTALL_DIR="$test_dir/install" \

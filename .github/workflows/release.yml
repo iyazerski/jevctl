@@ -47,8 +47,10 @@ jobs:
         env:
           ASSET: jevctl-${{ matrix.target }}.tar.gz
         run: |
-          mkdir dist
-          tar -C "target/${{ matrix.target }}/release" -czf "dist/$ASSET" jevctl
+          mkdir -p dist/package
+          cp "target/${{ matrix.target }}/release/jevctl" README.md LICENSE dist/package/
+          tar -C dist/package -czf "dist/$ASSET" jevctl README.md LICENSE
+          rm -r dist/package
           cd dist
           shasum -a 256 "$ASSET" > "$ASSET.sha256"
       - uses: actions/upload-artifact@v7
