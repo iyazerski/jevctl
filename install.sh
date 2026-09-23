@@ -1,13 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-register_mcp=false
-if [ "${1:-}" = "--register-mcp" ]; then
-  register_mcp=true
-  shift
-fi
 if [ "$#" -ne 0 ]; then
-  echo "usage: install.sh [--register-mcp]" >&2
+  echo "usage: install.sh" >&2
   exit 2
 fi
 
@@ -62,22 +57,9 @@ if [ ! -x "$install_dir/jevctl" ]; then
   exit 1
 fi
 
-if [ "$register_mcp" = true ]; then
-  if command -v codex >/dev/null 2>&1; then
-    codex mcp add jevctl -- "$install_dir/jevctl" mcp serve
-  fi
-  if command -v claude >/dev/null 2>&1; then
-    claude mcp add --scope user jevctl -- "$install_dir/jevctl" mcp serve
-  fi
-fi
-
 cat <<EOF
 
 jevctl installed to $install_dir/jevctl
 
 The process running jevctl must inherit TYPESAFE_API_KEY.
-
-Manual MCP configuration:
-  command: $install_dir/jevctl
-  args: ["mcp", "serve"]
 EOF

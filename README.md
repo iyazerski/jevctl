@@ -10,9 +10,9 @@ macOS and Linux on x86_64 and ARM64 are supported.
 curl -fsSL https://raw.githubusercontent.com/iyazerski/jevctl/main/install.sh | sh
 ```
 
-The installer verifies the release checksum and installs to `~/.local/bin`. Pass `--register-mcp` to also register `jevctl mcp serve` with detected Codex and Claude CLIs.
+The installer verifies the release checksum and installs to `~/.local/bin`.
 
-`jevctl` expects `TYPESAFE_API_KEY` in its process environment. Credential configuration is the user's responsibility. The binary and installer do not store, prompt for, or add the key to MCP configuration.
+`jevctl` expects `TYPESAFE_API_KEY` in its process environment. The binary and installer do not store or prompt for the key.
 
 Check local readiness without making a request:
 
@@ -95,22 +95,7 @@ Run the stdio server:
 jevctl mcp serve
 ```
 
-Example configuration:
-
-```json
-{
-  "mcpServers": {
-    "jevctl": {
-      "command": "jevctl",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
 The server exposes one tool named `evaluate`. MCP clients add their configured server prefix. The tool schema and instructions explain when semantic evaluation helps, how to construct each question kind, and when deterministic tools are more appropriate.
-
-The [Dev Flows plugin](https://github.com/iyazerski/dev-flows-plugin) provides plan-lint, option-comparison, and completion-claim skills using this engine.
 
 ## Development
 
@@ -126,8 +111,6 @@ Run the opt-in live MCP smoke test when `TYPESAFE_API_KEY` is available:
 ```bash
 cargo test --test mcp_protocol live_mcp_matches_compact_contract -- --ignored --exact
 ```
-
-See [performance measurements](docs/performance.md) and the [implementation plan](docs/implementation-plan.md).
 
 ## License
 
